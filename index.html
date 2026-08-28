@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>테트리스</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-family: 'Segoe UI', sans-serif;
+    color: #fff;
+  }
+  .game-container {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+  }
+  .left-panel, .right-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    width: 160px;
+  }
+  .panel-box {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 12px;
+    padding: 16px;
+    text-align: center;
+  }
+  .panel-box h3 {
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #aaa;
+    margin-bottom: 10px;
+  }
+  .panel-box .value {
+    font-size: 28px;
+    font-weight: bold;
+    color: #00e5ff;
+    text-shadow: 0 0 10px rgba(0,229,255,0.5);
+  }
+  #next-canvas {
+    border-radius: 8px;
+    display: block;
+    margin: 0 auto;
+  }
+  #game-canvas {
+    border: 2px solid rgba(255,255,255,0.2);
+    border-radius: 8px;
+    box-shadow: 0 0 40px rgba(0,229,255,0.2), inset 0 0 20px rgba(0,0,0,0.5);
+    display: block;
+  }
+  .btn {
+    background: linear-gradient(135deg, #00e5ff, #0072ff);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: all 0.2s;
+    width: 100%;
+  }
+  .btn:hover { opacity: 0.85; transform: scale(1.03); }
+  .btn.danger {
+    background: linear-gradient(135deg, #ff4e50, #f9d423);
+  }
+  .scoreboard {
+    max-height: 300px;
+    overflow-y: auto;
+  }
+  .score-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 12px;
+  }
+  .score-item .rank { color: #aaa; width: 20px; }
+  .score-item .name { flex:1; margin: 0 6px; color: #eee; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .score-item .pts { color: #00e5ff; font-weight: bold; }
+  .score-item.me { background: rgba(0,229,255,0.1); border-radius: 6px; }
+  #overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.75);
+    display: flex; flex-direction: column;
+    justify-content: center; align-items: center;
+    z-index: 100;
+  }
+  #overlay h1 {
+    font-size: 48px;
+    font-weight: 900;
+    background: linear-gradient(135deg, #00e5ff, #7c3aed);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+  #overlay p { color: #aaa; margin-bottom: 24px; font-size: 16px; }
+  #overlay input {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 8px;
+    color: #fff;
+    padding: 10px 16px;
+    font-size: 16px;
+    text-align: center;
+    margin-bottom: 16px;
+    width: 220px;
+    outline: none;
+  }
+  #overlay input::placeholder { color: #888; }
+  #overlay .score-display {
+    font-size: 36px;
+    font-weight: bold;
+    color: #00e5ff;
+    text-shadow: 0 0 20px rgba(0,229,255,0.6);
+    margin-bottom: 20px;
+  }
+  .controls-hint {
+    background: rgba(255,255,255,0.05);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 11px;
+    color: #888;
+    line-height: 1.8;
+    text-align: left;
+  }
+  .controls-hint span { color: #ccc; }
+  .level-bar-bg {
+    background: rgba(255,255,255,0.1);
+    border-radius: 4px;
+    height: 8px;
+    overflow: hidden;
+    margin-top: 8px;
+  }
+  .level-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #00e5ff, #7c3aed);
+    border-radius: 4px;
+    transition: width 0.3s;
+  }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div id="overlay">
+  <h1>TETRIS</h1>
+  <p>블록을 쌓아 라인을 완성하세요!</p>
+  <input id="player-name" type="text" placeholder="닉네임 입력" maxlength="12">
+  <button class="btn" onclick="startGame()">🎮 게임 시작</button>
+</div>
+
+<div class="game-container">
+  <div class="left-panel">
+    <div class="panel-box">
+      <h3>Score</h3>
+      <div class="value" id="score-display">0</div>
+    </div>
+    <div class="panel-box">
+      <h3>Lines</h3>
+      <div class="value" id="lines-display">0</div>
+    </div>
+    <div class="panel-box">
+      <h3>Level</h3>
+      <div class="value" id="level-display">1</div>
+      <div class="level-bar-bg"><div class="level-bar" id="level-bar" style="width:0%"></div></div>
+    </div>
+    <div class="controls-hint">
+      <b style="color:#fff;display:block;margin-bottom:4px;">조작법</b>
+      <span>←→</span> 이동<br>
+      <span>↑</span> 회전<br>
+      <span>↓</span> 빠르게<br>
+      <span>Space</span> 즉시 드롭<br>
+      <span>P</span> 일시정지
+    </div>
+  </div>
+
+  <canvas id="game-canvas" width="300" height="600"></canvas>
+
+  <div class="right-panel">
+    <div class="panel-box">
+      <h3>Next</h3>
+      <canvas id="next-canvas" width="120" height="120"></canvas>
+    </div>
+    <button class="btn" id="pause-btn" onclick="togglePause()">⏸ 일시정지</button>
+    <button class="btn danger" onclick="confirmRestart()">🔄 재시작</button>
+    <div class="panel-box">
+      <h3>🏆 Best Scores</h3>
+      <div class="scoreboard" id="scoreboard"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const firebaseConfig = {"apiKey":"AIzaSyAA9XxN-Pw0vbLT0f8-mI2bV0FgEx18iIU","authDomain":"appbuilder-4e83c.firebaseapp.com","projectId":"appbuilder-4e83c","storageBucket":"appbuilder-4e83c.firebasestorage.app","messagingSenderId":"1038242551917","appId":"1:1038242551917:web:4d59995638762401dd0764"};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+const nextCanvas = document.getElementById('next-canvas');
+const nextCtx = nextCanvas.getContext('2d');
+
+const COLS = 10, ROWS = 20, BLOCK = 30;
+const COLORS = [
+  null,
+  '#00e5ff', // I - cyan
+  '#ffd600', // O - yellow
+  '#9c27b0', // T - purple
+  '#00e676', // S - green
+  '#ff1744', // Z - red
+  '#ff9100', // L - orange
+  '#2979ff', // J - blue
+];
+
+const PIECES = [
+  null,
+  [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], // I
+  [[2,2],[2,2]],                               // O
+  [[0,3,0],[3,3,3],[0,0,0]],                   // T
+  [[0,4,4],[4,4,0],[0,0,0]],                   // S
+  [[5,5,0],[0,5,5],[0,0,0]],                   // Z
+  [[6,0,0],[6,6,6],[0,0,0]],                   // L
+  [[0,0,7],[7,7,7],[0,0,0]],                   // J
+];
+
+let board, score, lines, level, gameOver, paused, animId;
+let currentPiece, currentX, currentY, nextPiece;
+let lastTime = 0, dropCounter = 0, dropInterval;
+let playerName = '';
+let mySessionId = 'player_' + Date.now();
+let gameStarted = false;
+
+function createBoard() {
+  return Array.from({length: ROWS}, () => Array(COLS).fill(0));
+}
+
+function randomPiece() {
+  const id = Math.floor(Math.random() * 7) + 1;
+  return { id, shape: PIECES[id].map(r => [...r]) };
+}
+
+function initGame() {
+  board = createBoard();
+  score = 0; lines = 0; level = 1;
+  gameOver = false; paused = false;
+  dropInterval = 800;
+  currentPiece = randomPiece();
+  nextPiece = randomPiece();
+  currentX = 3; currentY = 0;
+  updateDisplays();
+  document.getElementById('pause-btn').textContent = '⏸ 일시정지';
+}
+
+function startGame() {
+  playerName = document.getElementById('player-name').value.trim() || '익명';
+  document.getElementById('overlay').style.display = 'none';
+  gameStarted = true;
+  initGame();
+  lastTime = 0;
+  dropCounter = 0;
+  cancelAnimationFrame(animId);
+  animId = requestAnimationFrame(gameLoop);
+}
+
+function confirmRestart() {
+  if (!gameStarted) return;
+  if (confirm('게임을 재시작하시겠습니까?')) {
+    cancelAnimationFrame(animId);
+    initGame();
+    lastTime = 0; dropCounter = 0;
+    animId = requestAnimationFrame(gameLoop);
+  }
+}
+
+function togglePause() {
+  if (!gameStarted || gameOver) return;
+  paused = !paused;
+  document.getElementById('pause-btn').textContent = paused ? '▶ 계속하기' : '⏸ 일시정지';
+  if (!paused) { lastTime = 0; animId = requestAnimationFrame(gameLoop); }
+}
+
+function rotate(matrix) {
+  const N = matrix.length;
+  return matrix[0].map((_, i) => matrix.map(row => row[i]).reverse());
+}
+
+function isValid(shape, ox, oy) {
+  for (let r = 0; r < shape.length; r++) {
+    for (let c = 0; c < shape[r].length; c++) {
+      if (!shape[r][c]) continue;
+      const nx = ox + c, ny = oy + r;
+      if (nx < 0 || nx >= COLS || ny >= ROWS) return false;
+      if (ny >= 0 && board[ny][nx]) return false;
+    }
+  }
+  return true;
+}
+
+function placePiece() {
+  for (let r = 0; r < currentPiece.shape.length; r++) {
+    for (let c = 0; c < currentPiece.shape[r].length; c++) {
+      if (!currentPiece.shape[r][c]) continue;
+      const ny = currentY + r, nx = currentX + c;
+      if (ny < 0) { endGame(); return; }
+      board[ny][nx] = currentPiece.id;
+    }
+  }
+  clearLines();
+  currentPiece = nextPiece;
+  nextPiece = randomPiece();
+  currentX = 3; currentY = 0;
+  if (!isValid(currentPiece.shape, currentX, currentY)) { endGame(); return; }
+}
+
+function clearLines() {
+  let cleared = 0;
+  for (let r = ROWS - 1; r >= 0; r--) {
+    if (board[r].every(c => c !== 0)) {
+      board.splice(r, 1);
+      board.unshift(Array(COLS).fill(0));
+      cleared++; r++;
+    }
+  }
+  if (cleared > 0) {
+    const pts = [0, 100, 300, 500, 800];
+    score += (pts[cleared] || 800) * level;
+    lines += cleared;
+    level = Math.floor(lines / 10) + 1;
+    dropInterval = Math.max(100, 800
